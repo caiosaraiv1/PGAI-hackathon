@@ -1,2 +1,19 @@
+# Ambientes virtuais
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Segredos / variáveis de ambiente
 .env
-venv
+
+# Banco local do Django (gerado por `python manage.py migrate`)
+db.sqlite3
+
+# Editores / SO
+.vscode/
+.idea/
+.DS_Store
