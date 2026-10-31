@@ -1,0 +1,39 @@
+{
+  "titulo": "Lei de Ohm",
+  "secoes": [
+    {
+      "titulo": "Definição",
+      "paragrafos": [
+        "A Lei de Ohm relaciona tensão, corrente e resistência em um condutor ôhmico: a tensão é diretamente proporcional à corrente que o atravessa, mantida a temperatura constante."
+      ],
+      "itens": [],
+      "bloco": "V = R * I"
+    },
+    {
+      "titulo": "Cálculo passo a passo",
+      "paragrafos": [
+        "Considere um resistor de 220 ohms ligado a uma fonte de 11 V."
+      ],
+      "itens": [
+        "Isole a corrente: I = V / R.",
+        "Substitua os valores: I = 11 / 220.",
+        "Obtenha o resultado: I = 0,05 A, ou seja, 50 mA."
+      ],
+      "bloco": ""
+    },
+    {
+      "titulo": "Circuito básico",
+      "paragrafos": [],
+      "itens": [],
+      "bloco": "   +----[ R ]----+\n   |             |\n  (V)            |\n   |             |\n   +-------------+"
+    },
+    {
+      "titulo": "Exemplo aplicado",
+      "paragrafos": [
+        "Ao dimensionar o resistor de um LED, a Lei de Ohm indica o valor necessário para limitar a corrente e evitar a queima do componente. Símbolos como < e & aparecem como texto comum."
+      ],
+      "itens": [],
+      "bloco": ""
+    }
+  ]
+}

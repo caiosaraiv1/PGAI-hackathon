@@ -1,29 +1,98 @@
+import json
+import logging
 import os
-import re
+import time
+from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    BadRequestError,
+    InternalServerError,
+    OpenAI,
+    OpenAIError,
+    RateLimitError,
+)
+from pydantic import ValidationError
 
 from .prompts import (
     CONCEPT_SYSTEM_PROMPT,
     EXERCISE_SYSTEM_PROMPT,
     EXERCISE_USER_TEMPLATE,
     FLASHCARD_SYSTEM_PROMPT,
+    FLASHCARD_USER_TEMPLATE,
+    JSON_FALLBACK_INSTRUCTION,
 )
+from .schemas import Exercicio, Flashcards, Resumo, json_schema, response_format
+
+logger = logging.getLogger(__name__)
 
 # Carregar variáveis de ambiente
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-client = OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL)
 
 # Modelo usado por todas as funcionalidades (LLM_MODEL vazio também usa o padrão)
 MODEL = os.getenv("LLM_MODEL") or "gemini-3.8-flash"
 
+# Modo mock: LLM_MOCK=1 troca a API pelas respostas em services/fixtures/
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+MOCK_DELAY_SECONDS = 1
+
+# Schemas que o endpoint rejeitou nesta execução; evita gastar uma requisição a cada envio
+_rejected_schemas = set()
+
+
+# Erros exibidos na tela: cada classe traz a mensagem e o status HTTP da página
+class LLMError(Exception):
+    status = 502
+    message = "Não foi possível gerar a resposta. Confira a configuração da API e tente novamente."
+
+    def __str__(self):
+        return self.message
+
+
+class RateLimitExceeded(LLMError):
+    status = 429
+    message = (
+        "Limite de requisições atingido. Aguarde um minuto e tente novamente. "
+        "Se o aviso continuar, a cota diária acabou e será renovada à meia-noite do horário do Pacífico."
+    )
+
+
+class ServiceUnavailable(LLMError):
+    status = 503
+    message = "O Gemini está indisponível no momento. Tente novamente em alguns minutos."
+
+
+class InvalidResponse(LLMError):
+    message = "O modelo enviou uma resposta inválida ou incompleta. Tente gerar novamente."
+
+
+# O cliente só é criado na primeira chamada real, então o modo mock dispensa a chave
+@lru_cache(maxsize=1)
+def _client():
+    return OpenAI(api_key=os.getenv("GEMINI_API_KEY"), base_url=GEMINI_BASE_URL, max_retries=1)
+
+
+def _mock_enabled():
+    return os.getenv("LLM_MOCK") == "1"
+
+
+def _mock_response(schema, user_content):
+    """Lê a fixture do schema. "mock:429", "mock:503" e "mock:invalido" no texto simulam falhas."""
+    time.sleep(MOCK_DELAY_SECONDS)
+    if "mock:429" in user_content:
+        raise RateLimitExceeded()
+    if "mock:503" in user_content:
+        raise ServiceUnavailable()
+    suffix = "_invalido" if "mock:invalido" in user_content else ""
+    return (FIXTURES_DIR / f"{schema.__name__.lower()}{suffix}.json").read_text(encoding="utf-8")
+
 
 def _chat(system_prompt, user_content, **params):
     """Faz uma única chamada de chat (sem histórico) e retorna o texto da resposta."""
-    response = client.chat.completions.create(
+    response = _client().chat.completions.create(
         model=MODEL,
         messages=[
             {"role": "system", "content": system_prompt},
@@ -31,92 +100,70 @@ def _chat(system_prompt, user_content, **params):
         ],
         **params
     )
+    if not response.choices:
+        return ""
     return response.choices[0].message.content or ""
 
 
-# Função para formatar a resposta antes de enviá-la ao template
-def format_response(response):
-    if not response:
-        return "Nenhuma resposta gerada."
-
-    # Adiciona quebras de linha para melhorar a legibilidade
-    formatted = response.replace("\n", "<br>")
-
-    # Negrito para palavras-chave importantes
-    keywords = ["Definição:", "Exemplo:", "Fórmula:", "Importante:", "Observação:"]
-    for word in keywords:
-        formatted = formatted.replace(word, f"<strong>{word}</strong>")
-
-    # Convertendo listas para HTML (se detectar "- " no início das linhas)
-    formatted = re.sub(r"- (.+)", r"<li>\1</li>", formatted)
-    formatted = re.sub(r"(<li>.*?</li>)", r"<ul>\1</ul>", formatted)  # Garante que seja uma lista UL
-
-    # Código e fórmulas (se houver trechos dentro de crases ``)
-    formatted = re.sub(r"``(.*?)``", r"<pre><code>\1</code></pre>", formatted)
-
-    return formatted
+def _strip_code_fence(text):
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1].rsplit("```", 1)[0]
+    return text
 
 
-# Assistente de engenharia: retorna a explicação já formatada em HTML
+def _request_json(schema, system_prompt, user_content, **params):
+    """Pede a resposta com json_schema; se o endpoint rejeitar, pede o JSON no prompt."""
+    if schema not in _rejected_schemas:
+        try:
+            return _chat(system_prompt, user_content, response_format=response_format(schema), **params)
+        except BadRequestError as e:
+            # O Gemini também responde 400 para chave inválida, que não se resolve com o fallback
+            if "api key" in str(e).lower():
+                raise
+            logger.warning("json_schema rejeitado para %s: %s", schema.__name__, e)
+            _rejected_schemas.add(schema)
+
+    instruction = JSON_FALLBACK_INSTRUCTION.format(
+        schema=json.dumps(json_schema(schema), ensure_ascii=False)
+    )
+    return _strip_code_fence(_chat(system_prompt + instruction, user_content, **params))
+
+
+def _generate(schema, system_prompt, user_content, **params):
+    """Obtém a resposta do modelo e a valida; toda falha vira um LLMError com mensagem para a tela."""
+    try:
+        if _mock_enabled():
+            raw = _mock_response(schema, user_content)
+        else:
+            raw = _request_json(schema, system_prompt, user_content, **params)
+        return schema.model_validate_json(raw)
+    except ValidationError as e:
+        logger.warning("Resposta inválida para %s: %s", schema.__name__, e)
+        raise InvalidResponse() from e
+    except RateLimitError as e:
+        raise RateLimitExceeded() from e
+    except (InternalServerError, APIConnectionError) as e:
+        raise ServiceUnavailable() from e
+    except OpenAIError as e:
+        logger.error("Erro na chamada ao modelo: %s", e)
+        raise LLMError() from e
+
+
+# Assistente de engenharia: retorna um Resumo (título e seções)
 def explain_concept(prompt):
-    try:
-        return format_response(_chat(CONCEPT_SYSTEM_PROMPT, prompt))
-    except Exception as e:
-        return f"Erro ao processar o prompt: {str(e)}"
+    return _generate(Resumo, CONCEPT_SYSTEM_PROMPT, prompt)
 
 
-# Flashcards: retorna {'question', 'answer'} a partir do formato "pergunta | resposta"
-def generate_flashcard(topic):
-    try:
-        raw = _chat(
-            FLASHCARD_SYSTEM_PROMPT, topic,
-            temperature=0.7
-        )
-    except Exception as e:
-        raw = f"Erro ao processar o prompt: {str(e)}"
-    return parse_flashcard(raw)
+# Flashcards: retorna uma lista de Flashcard com no máximo `quantity` itens
+def generate_flashcards(topic, quantity=3):
+    user_content = FLASHCARD_USER_TEMPLATE.format(quantity=quantity, topic=topic)
+    return _generate(Flashcards, FLASHCARD_SYSTEM_PROMPT, user_content, temperature=0.7).cards[:quantity]
 
 
-def parse_flashcard(raw):
-    # Separa a string usando '|' como delimitador
-    if '|' in raw:
-        question, answer = raw.split('|', 1)  # Divide apenas no primeiro |
-        return {'question': question.strip(), 'answer': answer.strip()}
-    # Caso não encontre o separador
-    return {'question': raw, 'answer': "Resposta não encontrada"}
-
-
-# Exercícios: retorna {'question', 'alternatives', 'answers'} (listas de 4 itens, A-D)
+# Exercícios: retorna um Exercicio (pergunta, 4 alternativas, letra correta e explicação)
 def generate_exercise(topic):
-    try:
-        raw = _chat(
-            EXERCISE_SYSTEM_PROMPT, EXERCISE_USER_TEMPLATE.format(topic=topic),
-            temperature=1  # Aumenta a variação das perguntas geradas
-        )
-    except Exception as e:
-        raw = f"Erro ao processar o prompt: {str(e)}"
-    return parse_exercise(raw)
-
-
-def parse_exercise(raw):
-    # Inicializa os valores padrão
-    question = "Pergunta não encontrada"
-    alternatives = ["Alternativa não encontrada"] * 4
-    answers = ["Resposta não encontrada"] * 4
-
-    # Separa a string usando '$' como delimitador
-    if '$' in raw:
-        question, alternative_answer = raw.split('$', 1)  # Divide no primeiro $
-        question = question.strip()
-
-        # Separa alternativas e respostas usando '#'
-        alternative_blocks = alternative_answer.split('#')
-
-        if len(alternative_blocks) >= 4:
-            for i in range(4):
-                if '|' in alternative_blocks[i]:
-                    alternative, correctness = alternative_blocks[i].split('|', 1)
-                    alternatives[i] = alternative.strip()
-                    answers[i] = correctness.strip()
-
-    return {'question': question, 'alternatives': alternatives, 'answers': answers}
+    return _generate(
+        Exercicio, EXERCISE_SYSTEM_PROMPT, EXERCISE_USER_TEMPLATE.format(topic=topic),
+        temperature=1  # Aumenta a variação das perguntas geradas
+    )

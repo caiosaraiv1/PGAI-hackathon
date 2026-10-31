@@ -1,0 +1,24 @@
+{
+  "cards": [
+    {
+      "frente": "O que diz a Lei de Ohm?",
+      "verso": "A tensão em um condutor ôhmico é proporcional à corrente que o atravessa: V = R * I."
+    },
+    {
+      "frente": "Qual é a unidade de resistência elétrica?",
+      "verso": "O ohm, que equivale a um volt por ampère."
+    },
+    {
+      "frente": "Como calcular a potência dissipada em um resistor?",
+      "verso": "Use P = V * I. Substituindo pela Lei de Ohm, também vale P = R * I^2 e P = V^2 / R. Exemplo: um resistor de 10 ohms percorrido por 2 A dissipa P = 10 * 2^2 = 40 W. Essa potência vira calor, então o componente precisa suportar esse valor com folga para operar em segurança durante toda a vida útil do circuito, inclusive em temperaturas ambientes mais altas."
+    },
+    {
+      "frente": "Qual é a resistência equivalente de dois resistores em série?",
+      "verso": "A soma das resistências: Req = R1 + R2."
+    },
+    {
+      "frente": "Qual é a resistência equivalente de dois resistores em paralelo?",
+      "verso": "Req = (R1 * R2) / (R1 + R2)."
+    }
+  ]
+}

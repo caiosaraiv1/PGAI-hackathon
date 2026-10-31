@@ -1,0 +1,23 @@
+{
+  "pergunta": "Um resistor de 220 ohms é ligado a uma fonte de 11 V. Qual é a corrente que percorre o circuito e a potência dissipada pelo componente?",
+  "alternativas": [
+    {
+      "letra": "A",
+      "texto": "I = 5 A e P = 55 W, porque a corrente é obtida multiplicando a tensão pela resistência e dividindo o resultado por mil."
+    },
+    {
+      "letra": "B",
+      "texto": "I = 0,05 A e P = 0,55 W, calculados por I = V / R e P = V * I."
+    },
+    {
+      "letra": "C",
+      "texto": "I = 0,5 A e P = 5,5 W, considerando que a resistência equivalente do circuito é de 22 ohms por causa da queda de tensão interna da fonte, que é sempre desprezada nos cálculos."
+    },
+    {
+      "letra": "D",
+      "texto": "I = 20 A e P = 220 W."
+    }
+  ],
+  "correta": "B",
+  "explicacao": "Pela Lei de Ohm, I = V / R = 11 / 220 = 0,05 A. A potência é P = V * I = 11 * 0,05 = 0,55 W."
+}

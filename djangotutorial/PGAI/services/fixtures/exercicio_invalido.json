@@ -1,0 +1,14 @@
+{
+  "pergunta": "Qual é a unidade de resistência elétrica?",
+  "alternativas": [
+    {
+      "letra": "A",
+      "texto": "Ohm"
+    },
+    {
+      "letra": "A",
+      "texto": "Volt"
+    }
+  ],
+  "correta": "E"
+}
