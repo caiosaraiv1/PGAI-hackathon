@@ -161,9 +161,7 @@ PGAI-hackathon/
 
 ## Autoria
 
-Projeto desenvolvido em equipe durante o hackathon. Fui responsável pelo **backend** (Django), pela **integração com a OpenAI API** e pela **engenharia de prompts**: os system prompts e os formatos de saída que o backend interpreta.
-
-<!-- Adicione aqui seu nome, LinkedIn e os créditos dos demais integrantes da equipe. -->
+Projeto desenvolvido em equipe durante o hackathon. Fui responsávelpela **integração com a OpenAI API** e pela **engenharia de prompts**: os system prompts e os formatos de saída que o backend interpreta.
 
 ## Desafio do hackathon
 
