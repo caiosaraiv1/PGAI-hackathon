@@ -13,11 +13,12 @@ from .prompts import (
 
 # Carregar variáveis de ambiente
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_API_KEY)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+client = OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL)
 
-# Modelo usado por todas as funcionalidades
-MODEL = "gpt-3.5-turbo"
+# Modelo usado por todas as funcionalidades (LLM_MODEL vazio também usa o padrão)
+MODEL = os.getenv("LLM_MODEL") or "gemini-3.8-flash"
 
 
 def _chat(system_prompt, user_content, **params):
@@ -30,7 +31,7 @@ def _chat(system_prompt, user_content, **params):
         ],
         **params
     )
-    return response.choices[0].message.content
+    return response.choices[0].message.content or ""
 
 
 # Função para formatar a resposta antes de enviá-la ao template
@@ -69,9 +70,7 @@ def generate_flashcard(topic):
     try:
         raw = _chat(
             FLASHCARD_SYSTEM_PROMPT, topic,
-            temperature=0.7,
-            frequency_penalty=0,
-            presence_penalty=0
+            temperature=0.7
         )
     except Exception as e:
         raw = f"Erro ao processar o prompt: {str(e)}"
@@ -92,9 +91,7 @@ def generate_exercise(topic):
     try:
         raw = _chat(
             EXERCISE_SYSTEM_PROMPT, EXERCISE_USER_TEMPLATE.format(topic=topic),
-            temperature=1,  # Aumenta a variação das perguntas geradas
-            frequency_penalty=0,
-            presence_penalty=0
+            temperature=1  # Aumenta a variação das perguntas geradas
         )
     except Exception as e:
         raw = f"Erro ao processar o prompt: {str(e)}"

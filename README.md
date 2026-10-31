@@ -1,6 +1,6 @@
-# PGAI — Assistente de estudos para engenharia com OpenAI
+# PGAI — Assistente de estudos para engenharia com Gemini
 
-Aplicação web em Django que usa a OpenAI API (`gpt-3.5-turbo`) para ajudar estudantes de engenharia: explica conceitos, gera flashcards e cria questões de múltipla escolha a partir de um tema digitado pelo usuário. Projeto desenvolvido em equipe durante um hackathon.
+Aplicação web em Django que usa a Gemini API (`gemini-3.8-flash` por padrão) para ajudar estudantes de engenharia: explica conceitos, gera flashcards e cria questões de múltipla escolha a partir de um tema digitado pelo usuário. Projeto desenvolvido em equipe durante um hackathon.
 
 <!--
   Captura de tela: substitua o caminho abaixo pela imagem da aplicação e descomente.
@@ -21,8 +21,8 @@ Cada envio é uma chamada independente ao modelo: não há histórico de convers
 
 - **Python 3.12** (versões fixadas no `requirements.txt` não instalam em Python 3.14)
 - **Django 5.1** — views e templates HTML/CSS (sem framework de front-end)
-- **OpenAI Python SDK 1.x** — Chat Completions API, modelo `gpt-3.5-turbo`
-- **python-dotenv** — carrega a `OPENAI_API_KEY` de um arquivo `.env`
+- **OpenAI Python SDK 1.x** — apontado para o endpoint do Gemini compatível com a OpenAI (Chat Completions API), modelo configurável por `LLM_MODEL`
+- **python-dotenv** — carrega `GEMINI_API_KEY` e `LLM_MODEL` de um arquivo `.env`
 - SQLite (padrão do Django; a aplicação não define modelos próprios)
 
 ## Como funciona a integração com o LLM
@@ -30,13 +30,13 @@ Cada envio é uma chamada independente ao modelo: não há histórico de convers
 Toda a lógica de IA fica em `djangotutorial/PGAI/services/`; as views só recebem o formulário, chamam o serviço e renderizam o template.
 
 ```
-views.py ──► services/llm.py ──► OpenAI Chat Completions (gpt-3.5-turbo)
+views.py ──► services/llm.py ──► Gemini (endpoint compatível com a OpenAI)
                  │
                  └── services/prompts.py  (system prompts de cada funcionalidade)
 ```
 
 - **`services/prompts.py`** — um system prompt por funcionalidade, como constantes nomeadas e comentadas (`CONCEPT_SYSTEM_PROMPT`, `FLASHCARD_SYSTEM_PROMPT`, `EXERCISE_SYSTEM_PROMPT`, `EXERCISE_USER_TEMPLATE`).
-- **`services/llm.py`** — cria o cliente OpenAI, faz as chamadas (`explain_concept`, `generate_flashcard`, `generate_exercise`) e converte o texto do modelo em dados para os templates.
+- **`services/llm.py`** — cria o cliente do SDK `openai` com a `base_url` do Gemini, faz as chamadas (`explain_concept`, `generate_flashcard`, `generate_exercise`) e converte o texto do modelo em dados para os templates.
 
 **Saída estruturada via contrato no prompt.** Flashcards e exercícios precisam de partes separadas (frente/verso, alternativas, gabarito). Como o projeto usa texto livre, e não JSON mode ou function calling, os prompts definem um formato com delimitadores e o backend faz o parsing:
 
@@ -52,11 +52,11 @@ Se o modelo não respeitar o formato, o parser usa valores padrão ("Resposta n�
 - Não há limite de tokens (`max_tokens`), cache nem controle de custo.
 - O parsing depende de o modelo seguir os delimitadores; não há validação nem nova tentativa.
 - A resposta do assistente é renderizada com `|safe` no template, então o HTML gerado a partir da saída do modelo não é escapado.
-- O cliente OpenAI é criado na importação do módulo, então o servidor não sobe sem `OPENAI_API_KEY` definida.
+- O cliente é criado na importação do módulo, então o servidor não sobe sem `GEMINI_API_KEY` definida.
 
 ## Como rodar
 
-Pré-requisitos: Python 3.12 e uma chave da OpenAI API.
+Pré-requisitos: Python 3.12 e uma chave da Gemini API (veja [Como gerar a chave](#como-gerar-a-chave-do-gemini)).
 
 ```bash
 # 1. Na raiz do repositório, crie e ative um ambiente virtual
@@ -66,9 +66,9 @@ source venv/bin/activate          # Windows: venv\Scripts\activate
 # 2. Instale as dependências
 pip install -r requirements.txt
 
-# 3. Configure a chave da OpenAI
+# 3. Configure a chave do Gemini
 cp .env.example .env              # Windows: copy .env.example .env
-# edite o .env e preencha OPENAI_API_KEY
+# edite o .env e preencha GEMINI_API_KEY
 
 # 4. Entre na pasta do projeto Django, crie o banco local e suba o servidor
 cd djangotutorial
@@ -77,6 +77,24 @@ python manage.py runserver
 ```
 
 Acesse http://127.0.0.1:8000/ e use o menu para alternar entre Resumo, Flashcards e Exercícios.
+
+### Como gerar a chave do Gemini
+
+1. Acesse o [Google AI Studio](https://aistudio.google.com/apikey) e entre com sua conta Google.
+2. Clique em **Create API key** e escolha ou crie um projeto.
+3. Copie a chave para o `.env`, na raiz do repositório. O `.env` é ignorado pelo git; nunca coloque a chave em arquivos versionados.
+
+```dotenv
+GEMINI_API_KEY=sua_chave_aqui
+LLM_MODEL=
+```
+
+| Variável | Obrigatória | Descrição |
+|---|---|---|
+| `GEMINI_API_KEY` | Sim | Chave gerada no Google AI Studio. |
+| `LLM_MODEL` | Não | Nome do modelo. Se ficar vazia, usa `gemini-3.8-flash`. |
+
+No free tier, cada envio de formulário gasta ao menos uma requisição. Em outubro de 2026, a API retornou limites de 5 requisições por minuto e 20 por dia por modelo; os valores atuais aparecem no [AI Studio](https://ai.dev/rate-limit). O Google pode usar o conteúdo enviado no free tier para melhorar seus produtos, então não envie dados sensíveis.
 
 ## Estrutura de pastas
 
@@ -91,7 +109,7 @@ PGAI-hackathon/
         ├── urls.py         # rotas: /, /flashcards, /exercicios
         ├── views.py        # recebem o formulário, chamam services.llm e renderizam
         ├── services/
-        │   ├── llm.py      # cliente OpenAI, chamadas ao modelo e parsing das respostas
+        │   ├── llm.py      # cliente do Gemini, chamadas ao modelo e parsing das respostas
         │   └── prompts.py  # system prompts de cada funcionalidade
         └── templates/
             ├── index.html       # assistente ("Resumo")

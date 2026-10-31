@@ -1,9 +1,11 @@
-# Prompts enviados à OpenAI, um por funcionalidade.
+# Prompts enviados ao modelo Gemini, um por funcionalidade.
 #
-# Os textos são mantidos exatamente como foram usados no hackathon (inclusive a
-# indentação dentro das strings, que também é enviada ao modelo). Alterar estes
-# textos altera o comportamento do modelo e, no caso de flashcards e exercícios,
-# pode quebrar o parsing da resposta em services/llm.py.
+# Os textos são mantidos como foram usados no hackathon (inclusive a indentação
+# dentro das strings, que também é enviada ao modelo), exceto pelas regras contra
+# LaTeX e Markdown, adicionadas na migração para o Gemini porque o $ das fórmulas
+# colide com os delimitadores. Alterar estes textos altera o comportamento do
+# modelo e, no caso de flashcards e exercícios, pode quebrar o parsing da resposta
+# em services/llm.py.
 
 
 # Assistente geral (aba "RESUMO"): explica conceitos de engenharia em texto livre.
@@ -18,6 +20,7 @@ CONCEPT_SYSTEM_PROMPT = '''
                 3. Exemplos aplicados: Sempre que possível, forneça exemplos práticos para contextualizar a teoria.
                 4. Solicitação de detalhes: Se a pergunta for genérica ou incompleta, peça mais informações para fornecer uma resposta mais útil.
                 5. Tom acessível: Seja formal, mas mantenha um tom didático e amigável para facilitar o aprendizado.
+                6. Formatação: Não use LaTeX nem Markdown (sem $, **, títulos com # ou tabelas). Escreva em português correto, com todos os acentos (fórmula, número, cinética). Nas fórmulas, use caracteres comuns, como Ec = (1/2) * m * v^2.
                 '''
 
 
@@ -36,6 +39,8 @@ FLASHCARD_SYSTEM_PROMPT = '''
                 6. Separe a pergunta da resposta colocando | depois da pergunta e antes da resposta.
                 6. Envie sempre a mesma resposta para o conteúdo informado.
                 7. Sempre forneça exatamente esta formatação de resposta sem nenhuma variação, independentemente do número de chamadas.
+                8. Não use LaTeX nem Markdown. Escreva em português correto, com todos os acentos (fórmula, número, cinética). Nas fórmulas, use caracteres comuns, como Ec = (1/2) * m * v^2.
+                9. Use | uma única vez, apenas para separar a pergunta da resposta. Para módulo, escreva abs(z).
                 '''
 
 
@@ -66,6 +71,8 @@ EXERCISE_SYSTEM_PROMPT = '''
                 - Escolha a resposta correta aleatoriamente.  
                 - As alternativas devem ser plausíveis e desafiadoras.  
                 - Responda apenas no formato acima, sem explicações adicionais.  
+                - Não use LaTeX nem Markdown. Escreva em português correto, com todos os acentos (fórmula, número, cinética). Nas fórmulas, use caracteres comuns, como Ec = (1/2) * m * v^2.
+                - Use $ apenas para separar a pergunta das alternativas, # apenas para separar as alternativas e | apenas antes de correta/incorreta.
                 '''
 
 # Mensagem do usuário para exercícios: o tema digitado é embutido nesta frase.
