@@ -11,18 +11,19 @@ Aplicação web em Django que usa a Gemini API (`gemini-3.8-flash` por padrão) 
 
 | Tela | Rota | O que faz |
 |---|---|---|
-| **Resumo** (assistente) | `/` | O usuário escreve uma pergunta e o modelo responde como assistente de engenharia (definições, fórmulas, exemplos, passo a passo). A resposta é convertida para HTML: quebras de linha, negrito em rótulos como "Definição:" e "Exemplo:", listas e blocos de código. |
-| **Flashcards** | `/flashcards` | A partir de um tema, gera **um** flashcard por envio, com a pergunta na "frente" e a resposta no "verso". |
-| **Exercícios** | `/exercicios` | A partir de um tema, gera **uma** questão de múltipla escolha com 4 alternativas (A–D). Passar o mouse sobre uma alternativa mostra se ela está correta ou incorreta. |
+| **Resumo** (assistente) | `/` | O usuário escreve uma pergunta e o modelo responde como assistente de engenharia, em seções com parágrafos, listas de passos e, quando ajudam, fórmulas ou diagramas em texto puro. |
+| **Flashcards** | `/flashcards/` | A partir de um tema, gera de **1 a 5** flashcards por envio. O card vira ao clicar, com navegação entre os cards. |
+| **Exercícios** | `/exercicios/` | A partir de um tema, gera **uma** questão de múltipla escolha com 4 alternativas (A–D). Ao clicar em uma alternativa, o app marca certa ou errada e mostra a explicação. |
 
-Cada envio é uma chamada independente ao modelo: não há histórico de conversa, contas de usuário nem dados persistidos.
+A interface é responsiva e mostra um indicador enquanto espera o modelo, além de avisos específicos para limite de requisições (429), indisponibilidade (503) e resposta inválida. Cada envio é uma chamada independente ao modelo: não há histórico de conversa, contas de usuário nem dados persistidos.
 
 ## Stack
 
 - **Python 3.12** (versões fixadas no `requirements.txt` não instalam em Python 3.14)
-- **Django 5.1** — views e templates HTML/CSS (sem framework de front-end)
+- **Django 5.1** — views e templates, com CSS e JavaScript puros (sem framework de front-end nem etapa de build)
 - **OpenAI Python SDK 1.x** — apontado para o endpoint do Gemini compatível com a OpenAI (Chat Completions API), modelo configurável por `LLM_MODEL`
-- **python-dotenv** — carrega `GEMINI_API_KEY` e `LLM_MODEL` de um arquivo `.env`
+- **Pydantic 2** — define os schemas das respostas e as valida
+- **python-dotenv** — carrega as variáveis de ambiente de um arquivo `.env`
 - SQLite (padrão do Django; a aplicação não define modelos próprios)
 
 ## Como funciona a integração com o LLM
@@ -32,31 +33,35 @@ Toda a lógica de IA fica em `djangotutorial/PGAI/services/`; as views só receb
 ```
 views.py ──► services/llm.py ──► Gemini (endpoint compatível com a OpenAI)
                  │
-                 └── services/prompts.py  (system prompts de cada funcionalidade)
+                 ├── services/prompts.py   (system prompts de cada funcionalidade)
+                 ├── services/schemas.py   (formato e validação das respostas)
+                 └── services/fixtures/    (respostas usadas no modo mock)
 ```
 
-- **`services/prompts.py`** — um system prompt por funcionalidade, como constantes nomeadas e comentadas (`CONCEPT_SYSTEM_PROMPT`, `FLASHCARD_SYSTEM_PROMPT`, `EXERCISE_SYSTEM_PROMPT`, `EXERCISE_USER_TEMPLATE`).
-- **`services/llm.py`** — cria o cliente do SDK `openai` com a `base_url` do Gemini, faz as chamadas (`explain_concept`, `generate_flashcard`, `generate_exercise`) e converte o texto do modelo em dados para os templates.
+- **`services/prompts.py`** — um system prompt por funcionalidade, como constantes nomeadas, com as regras de escrita em comum (português acentuado, sem LaTeX nem Markdown, fórmulas em texto puro).
+- **`services/schemas.py`** — modelos Pydantic `Exercicio`, `Flashcards` e `Resumo`. Eles geram o JSON Schema enviado à API e validam o que volta.
+- **`services/llm.py`** — cria o cliente do SDK `openai` com a `base_url` do Gemini e `max_retries=1`, faz as chamadas (`explain_concept`, `generate_flashcards`, `generate_exercise`) e converte falhas em erros com mensagem para a tela.
 
-**Saída estruturada via contrato no prompt.** Flashcards e exercícios precisam de partes separadas (frente/verso, alternativas, gabarito). Como o projeto usa texto livre, e não JSON mode ou function calling, os prompts definem um formato com delimitadores e o backend faz o parsing:
+**Saída estruturada com JSON.** Cada chamada envia `response_format` com `json_schema`, e o resultado é sempre validado com Pydantic. Se o JSON vier inválido ou incompleto, a tela mostra uma mensagem de erro clara.
 
-| Funcionalidade | Formato pedido no prompt | Parser | Parâmetros |
+| Funcionalidade | Schema | Campos | Parâmetros |
 |---|---|---|---|
-| Assistente | Texto livre com rótulos ("Definição:", "Exemplo:"…) | `format_response` → HTML | padrão |
-| Flashcards | `pergunta \| resposta` | `parse_flashcard` (divide no primeiro `\|`) | `temperature=0.7` |
-| Exercícios | `Pergunta $ A) … \| correta # B) … \| incorreta # …` | `parse_exercise` (divide em `$` e `#`, depois em `\|`) | `temperature=1`, para variar as questões |
+| Resumo | `Resumo` | `titulo`, `secoes[1–6]` com `titulo`, `paragrafos`, `itens` e `bloco` | padrão |
+| Flashcards | `Flashcards` | `cards[1–5]` com `frente` e `verso` | `temperature=0.7` |
+| Exercícios | `Exercicio` | `pergunta`, `alternativas[4]` com `letra` e `texto`, `correta`, `explicacao` | `temperature=1`, para variar as questões |
 
-Se o modelo não respeitar o formato, o parser usa valores padrão ("Resposta não encontrada", "Alternativa não encontrada") em vez de quebrar a página. Erros da API são capturados e a mensagem aparece na própria tela.
+**Fallback.** Se o endpoint rejeitar o `json_schema` com erro 400, o app pede o JSON no próprio prompt, sem `response_format`, e aplica a mesma validação. Esse envio gasta uma requisição a mais; depois disso, o schema rejeitado segue direto pelo fallback até o servidor reiniciar.
 
-**Limitações conhecidas** (comportamento atual, mantido como foi entregue no hackathon):
+**Retentativas.** Com `max_retries=1`, o SDK repete uma vez, sozinho, as respostas 429 e 5xx. Um envio com falha pode gastar 2 requisições da cota.
+
+**Limitações conhecidas:**
 - Não há limite de tokens (`max_tokens`), cache nem controle de custo.
-- O parsing depende de o modelo seguir os delimitadores; não há validação nem nova tentativa.
-- A resposta do assistente é renderizada com `|safe` no template, então o HTML gerado a partir da saída do modelo não é escapado.
-- O cliente é criado na importação do módulo, então o servidor não sobe sem `GEMINI_API_KEY` definida.
+- O gabarito do exercício vai no HTML da página, então pode ser visto no código-fonte.
+- A validação garante o formato da resposta, não que o conteúdo técnico esteja correto.
 
 ## Como rodar
 
-Pré-requisitos: Python 3.12 e uma chave da Gemini API (veja [Como gerar a chave](#como-gerar-a-chave-do-gemini)).
+Pré-requisitos: Python 3.12 e uma chave da Gemini API (veja [Como gerar a chave](#como-gerar-a-chave-do-gemini)). No [modo mock](#modo-mock), a chave é dispensada.
 
 ```bash
 # 1. Na raiz do repositório, crie e ative um ambiente virtual
@@ -87,14 +92,44 @@ Acesse http://127.0.0.1:8000/ e use o menu para alternar entre Resumo, Flashcard
 ```dotenv
 GEMINI_API_KEY=sua_chave_aqui
 LLM_MODEL=
+LLM_MOCK=
 ```
 
 | Variável | Obrigatória | Descrição |
 |---|---|---|
-| `GEMINI_API_KEY` | Sim | Chave gerada no Google AI Studio. |
+| `GEMINI_API_KEY` | Sim, exceto no modo mock | Chave gerada no Google AI Studio. |
 | `LLM_MODEL` | Não | Nome do modelo. Se ficar vazia, usa `gemini-3.8-flash`. |
+| `LLM_MOCK` | Não | Use `1` para ativar o [modo mock](#modo-mock). |
 
-No free tier, cada envio de formulário gasta ao menos uma requisição. Em outubro de 2026, a API retornou limites de 5 requisições por minuto e 20 por dia por modelo; os valores atuais aparecem no [AI Studio](https://ai.dev/rate-limit). O Google pode usar o conteúdo enviado no free tier para melhorar seus produtos, então não envie dados sensíveis.
+No free tier, cada envio de formulário gasta ao menos uma requisição. Em outubro de 2026, a API retornou limites de 5 requisições por minuto e 20 por dia. Os limites valem por projeto, variam por modelo e a cota diária renova à meia-noite do horário do Pacífico; os valores atuais aparecem no [AI Studio](https://ai.dev/rate-limit). O Google pode usar o conteúdo enviado no free tier para melhorar seus produtos, então não envie dados sensíveis.
+
+## Modo mock
+
+Com `LLM_MOCK=1`, o app usa as respostas de `services/fixtures/` em vez da API: não gasta cota, não precisa de chave e passa pela mesma validação de uma resposta real.
+
+```bash
+cd djangotutorial
+LLM_MOCK=1 python manage.py runserver
+```
+
+No PowerShell, rode `$env:LLM_MOCK=1` antes do `runserver`. Também é possível definir `LLM_MOCK=1` no `.env`.
+
+Para ver os estados de erro, digite um destes textos no campo de qualquer tela:
+
+| Texto | Simula |
+|---|---|
+| `mock:429` | Limite de requisições atingido |
+| `mock:503` | Serviço indisponível |
+| `mock:invalido` | Resposta inválida ou incompleta do modelo |
+
+## Testes
+
+Os testes usam apenas mocks e nunca chamam a API.
+
+```bash
+cd djangotutorial
+python manage.py test PGAI
+```
 
 ## Estrutura de pastas
 
@@ -106,15 +141,22 @@ PGAI-hackathon/
     ├── manage.py
     └── PGAI/
         ├── settings.py
-        ├── urls.py         # rotas: /, /flashcards, /exercicios
+        ├── urls.py         # rotas: /, /flashcards/, /exercicios/
         ├── views.py        # recebem o formulário, chamam services.llm e renderizam
         ├── services/
-        │   ├── llm.py      # cliente do Gemini, chamadas ao modelo e parsing das respostas
-        │   └── prompts.py  # system prompts de cada funcionalidade
-        └── templates/
-            ├── index.html       # assistente ("Resumo")
-            ├── flashcards.html
-            └── exercicios.html
+        │   ├── llm.py      # cliente do Gemini, chamadas ao modelo, mock e erros
+        │   ├── prompts.py  # system prompts de cada funcionalidade
+        │   ├── schemas.py  # schemas Pydantic das respostas
+        │   └── fixtures/   # respostas válidas e inválidas do modo mock
+        ├── static/
+        │   ├── css/app.css
+        │   └── js/app.js   # carregamento, flashcards e exercícios
+        ├── templates/
+        │   ├── base.html        # cabeçalho, navegação, formulário e alertas
+        │   ├── index.html       # assistente ("Resumo")
+        │   ├── flashcards.html
+        │   └── exercicios.html
+        └── tests/          # testes de serviços e views, somente com mocks
 ```
 
 ## Autoria

@@ -1,0 +1,48 @@
+{% load static %}<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Resumo{% endblock %} · PG.AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+    <script src="{% static 'js/app.js' %}" defer></script>
+</head>
+<body{% if request.method == 'POST' %} data-submitted{% endif %}>
+    {% with current=request.resolver_match.url_name %}
+    <header class="topbar">
+        <div class="topbar__inner">
+            <a class="brand" href="{% url 'index' %}">PG.AI</a>
+            <nav class="tabs" aria-label="Seções">
+                <a class="tab{% if current == 'index' %} is-active{% endif %}" href="{% url 'index' %}"{% if current == 'index' %} aria-current="page"{% endif %}>Resumo</a>
+                <a class="tab{% if current == 'flashcards' %} is-active{% endif %}" href="{% url 'flashcards' %}"{% if current == 'flashcards' %} aria-current="page"{% endif %}>Flashcards</a>
+                <a class="tab{% if current == 'exercicios' %} is-active{% endif %}" href="{% url 'exercicios' %}"{% if current == 'exercicios' %} aria-current="page"{% endif %}>Exercícios</a>
+            </nav>
+        </div>
+    </header>
+    {% endwith %}
+
+    <main class="page">
+        <form method="POST" class="composer" data-composer>
+            {% csrf_token %}
+            <label class="composer__label" for="user_prompt">{% block prompt_label %}{% endblock %}</label>
+            <textarea id="user_prompt" name="user_prompt" rows="3" required placeholder="{% block placeholder %}{% endblock %}">{{ prompt }}</textarea>
+            <div class="composer__actions">
+                {% block composer_extra %}{% endblock %}
+                <button type="submit" class="button" data-submit>
+                    <span class="spinner" data-spinner hidden></span>
+                    <span data-submit-label>Gerar</span>
+                </button>
+            </div>
+        </form>
+
+        {% if error %}
+            <div class="alert" role="alert">{{ error }}</div>
+        {% endif %}
+
+        {% block result %}{% endblock %}
+    </main>
+</body>
+</html>

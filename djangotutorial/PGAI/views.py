@@ -2,59 +2,56 @@ from django.shortcuts import render
 
 from .services import llm
 
+MIN_FLASHCARDS = 1
+MAX_FLASHCARDS = 5
+DEFAULT_FLASHCARDS = 3
 
-# View para renderizar a página e exibir a resposta
-def index(request):
+
+def _render_page(request, template, generate, **context):
+    """Renderiza a tela; num POST, chama `generate` com o texto do usuário e exibe o resultado ou o erro."""
+    context.setdefault('prompt', '')
+    status = 200
+
     if request.method == 'POST':
         user_prompt = request.POST.get('user_prompt', '').strip()
+        context['prompt'] = user_prompt
         if user_prompt:
-            answer = llm.explain_concept(user_prompt)
+            try:
+                context['result'] = generate(user_prompt)
+            except llm.LLMError as e:
+                context['error'] = e.message
+                status = e.status
         else:
-            answer = "Por favor, forneça um prompt."
-        return render(request, "index.html", {'answer': answer, 'prompt': user_prompt})
+            context['error'] = "Por favor, forneça um prompt."
+            status = 400
 
-    return render(request, "index.html", {'answer': '', 'prompt': ''})
+    return render(request, template, context, status=status)
+
+
+# View da tela de resumo (assistente de engenharia)
+def index(request):
+    return _render_page(request, "index.html", llm.explain_concept)
+
+
+def _flashcard_quantity(request):
+    try:
+        quantity = int(request.POST.get('quantity', DEFAULT_FLASHCARDS))
+    except ValueError:
+        return DEFAULT_FLASHCARDS
+    return max(MIN_FLASHCARDS, min(quantity, MAX_FLASHCARDS))
 
 
 # View da tela de flashcards
 def flashcards(request):
-    if request.method == 'POST':
-        user_prompt = request.POST.get('user_prompt', '').strip()
-        if user_prompt:
-            card = llm.generate_flashcard(user_prompt)
-            return render(request, "flashcards.html", {
-                'question': card['question'],
-                'answer': card['answer'],
-                'prompt': user_prompt
-            })
-        else:
-            return render(request, "flashcards.html", {
-                'error': "Por favor, forneça um prompt.",
-                'prompt': ''
-            })
-
-    return render(request, "flashcards.html", {
-        'question': '',
-        'answer': '',
-        'prompt': ''
-    })
+    quantity = _flashcard_quantity(request)
+    return _render_page(
+        request, "flashcards.html",
+        lambda topic: llm.generate_flashcards(topic, quantity),
+        quantity=quantity,
+        quantity_options=range(MIN_FLASHCARDS, MAX_FLASHCARDS + 1)
+    )
 
 
 # View da tela de exercícios (múltipla escolha)
 def exercicios(request):
-    if request.method == 'POST':
-        user_prompt = request.POST.get('user_prompt', '').strip()
-        if user_prompt:
-            exercise = llm.generate_exercise(user_prompt)
-            alternatives = exercise['alternatives']
-            answers = exercise['answers']
-
-            return render(request, "exercicios.html", {
-                'question': exercise['question'],
-                'altA': alternatives[0], 'AnwA': answers[0],
-                'altB': alternatives[1], 'AnwB': answers[1],
-                'altC': alternatives[2], 'AnwC': answers[2],
-                'altD': alternatives[3], 'AnwD': answers[3]
-            })
-
-    return render(request, "exercicios.html", {'answer': '', 'prompt': ''})
+    return _render_page(request, "exercicios.html", llm.generate_exercise)

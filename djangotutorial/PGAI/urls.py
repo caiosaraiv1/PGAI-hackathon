@@ -22,7 +22,7 @@ from PGAI import views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', views.index, name='index/'),
-    path('/flashcards', views.flashcards, name='flashcards'),
-    path('/exercicios', views.exercicios, name='exercicios')
+    path('', views.index, name='index'),
+    path('flashcards/', views.flashcards, name='flashcards'),
+    path('exercicios/', views.exercicios, name='exercicios')
 ]
